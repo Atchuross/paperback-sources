@@ -1,5 +1,36 @@
+# Dépendances / sorties de build
 node_modules/
 tmp/
 bundles/
+
+# Système
 .DS_Store
+
+# Artefacts de travail des agents (rapports, preuves, sondes, archives)
+.mgrf/
+.mgv/
+.wc1tmp/
+.c2tmp/
+.c3tmp/
+.c4b64/
+c1-*
+c2-*
+c3-*
+c4-*
+c5-*
+c6-*
+w1-*
+f1-*
+mgr-*
+mgv-*
+RAPPORT-*
+AGENTS-MISE-A-JOUR-*
+chunk_*
+reass.*
+*.tar.gz
+*.b64
+*.b64.folded
+*.flat
 *.log
+*.out
+*.err
