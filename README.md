@@ -7,7 +7,7 @@ Dépôt de sources [Paperback](https://paperback.moe) (API **0.8**), publié via
 1. Ouvrir Paperback → **Settings → Extensions → Edit → +**
 2. **Repository Base URL** : l'URL GitHub Pages de ce dépôt (**sans slash final**) :
    ```
-   https://<pseudo>.github.io/<nom-du-depot>
+   https://atchuross.github.io/paperback-sources
    ```
 3. **Add to Paperback**
 
