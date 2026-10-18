@@ -1,0 +1,122 @@
+--- .mgrf/perf/src-before/src/Fanfox/Fanfox.ts	2026-10-18 20:44:24
++++ src/Fanfox/Fanfox.ts	2026-10-18 21:14:57
+@@ -11,9 +11,11 @@
+  *   - liste des chapitres : dans la MÊME page, union de `div#list-1` et
+  *     `div#list-2` (`div#chapterlist`) — liste complète, aucune pagination ;
+  *   - pages de chapitre : `GET /manga/<slug>/<chapterId>/1.html` (imagecount +
+- *     clé `guidkey` déballée en pur), puis UN appel
+- *     `chapterfun.ashx?cid=…&page=<n>&key=…` par page ; l'URL d'image est
+- *     reconstruite depuis `var pix` + `pvalue[0]` ⇒ aucun hôte CDN codé en dur ;
++ *     clé `guidkey` déballée en pur), puis les appels
++ *     `chapterfun.ashx?cid=…&page=<n>&key=…` (un par page) émis par vagues
++ *     BORNÉES (5 en vol au maximum, `requestsPerSecond: 4`) ; l'URL d'image est
++ *     reconstruite depuis `var pix` + `pvalue[0]` ⇒ aucun hôte CDN codé en dur,
++ *     aucune déduction d'URL ;
+  *   - User-Agent navigateur + `Referer: https://fanfox.net/` posés par
+  *     `FanfoxInterceptor` (le CDN répond 403 sans Referer d'hôte fanfox.net) ;
+  *   - erreurs 403 / 404 / autres / corps vide traduites explicitement, sans
+@@ -49,6 +51,7 @@
+   chapterFunUrl,
+   chapterFunParseError,
+   chapterReaderUrl,
++  CHAPTER_PAGE_CONCURRENCY,
+   emptyBodyError,
+   emptyChapterFunError,
+   errorMessageOf,
+@@ -60,6 +63,7 @@
+   isBlank,
+   LANG_CODE,
+   mangaShareUrl,
++  mapWithConcurrency,
+   missingChapterIdError,
+   missingChapterKeyError,
+   networkError,
+@@ -80,7 +84,7 @@
+ import { FChapterEntry, FSeriesTile } from "./data-contracts";
+ 
+ export const FanfoxInfo: SourceInfo = {
+-  version: "1.0.5",
++  version: "1.0.6",
+   name: "Fanfox",
+   icon: "icon.png",
+   author: "bigsolo-paperback08",
+@@ -107,7 +111,12 @@
+ export class Fanfox extends Source {
+   requestManager: RequestManager = App.createRequestManager({
+     interceptor: new FanfoxInterceptor(),
+-    requestsPerSecond: 1,
++    // 4 req/s (au lieu de 1) : reste MODÉRÉ et documenté. C'est la seule valeur
++    // augmentée ; combinée à `CHAPTER_PAGE_CONCURRENCY` (5 requêtes en vol au
++    // maximum, jamais une rafale non bornée), elle ramène l'ouverture d'un
++    // chapitre de `1 + imagecount` SECONDES à `(1 + imagecount) / 4` secondes,
++    // sans changer les URLs produites.
++    requestsPerSecond: 4,
+     requestTimeout: 30000,
+   });
+ 
+@@ -381,14 +390,29 @@
+    * Pages d'un chapitre :
+    *   1. page de lecture `…/<chapterId>/1.html` ⇒ `chapterid` + `imagecount` +
+    *      clé `guidkey` (déballée en pur, sans `eval`) ;
+-   *   2. UN appel `chapterfun.ashx?cid=<chapterid>&page=<n>&key=<guidkey>` par
+-   *      page `n = 1..imagecount`, puis `pvalue[0]` + `var pix` ⇒ URL absolue.
++   *   2. appels `chapterfun.ashx?cid=<chapterid>&page=<n>&key=<guidkey>` pour
++   *      `n = 1..imagecount`, émis par VAGUES BORNÉES
++   *      (`CHAPTER_PAGE_CONCURRENCY` en vol au maximum), puis `pvalue[0]` +
++   *      `var pix` ⇒ URL absolue.
+    *
+-   * LIMITE CONNUE : coût = `1 + imagecount` requêtes à 1 req/s (≈ `imagecount`
+-   * secondes pour ouvrir un chapitre ; 18 mesuré pour `one_piece/vTBE/c1196`).
+-   * Un seul élément de `pvalue` est fiable (`[0]`) : `page=17` renvoie
+-   * `[d017, d037]` alors que `page=18` renvoie `[d037]`. D'où un appel par page,
+-   * dans l'ordre, plutôt qu'un seul appel + déduction des pages suivantes.
++   * PERFORMANCE (mesuré le 2026-10-18) : le coût était de `1 + imagecount`
++   * requêtes SÉQUENTIELLES, donc `1 + imagecount` intervalles de débit — 18 172 ms
++   * pour 18 pages et 46 225 ms pour 46 pages à `requestsPerSecond: 1`. Les
++   * résultats sont désormais replacés PAR INDEX de page (jamais dans l'ordre
++   * d'arrivée) : la liste produite est identique, dans le même ordre, à celle de
++   * la boucle séquentielle (comparaison de listes, `.mgrf/perf/compare.js`).
++   *
++   * LIMITE CONNUE — un appel PAR PAGE reste la règle : mesuré le 2026-10-18 sur
++   * `one_piece/vTBE/c1196` (18 p.) et `bleach/v00/c000` (46 p.), `pvalue[1]`
++   * correspondait à la page suivante dans les 62 couples vérifiables
++   * (`.mgrf/perf/probe-pairs.js`). La piste « demi-requêtes + rattrapage »
++   * (appeler les seules pages impaires) n'est PAS retenue pour autant : la
++   * preuve ne porte que sur 2 chapitres, un désaccord éventuel serait SILENCIEUX
++   * (URL valide désignant la mauvaise page) et l'objectif de performance est
++   * déjà atteint sans elle. AUCUNE reconstruction ni déduction d'URL n'est
++   * faite : la numérotation des fichiers du CDN n'est pas contiguë (mesuré :
++   * `d017.jpg` → `d037.jpg` en fin de `vTBE/c1196`, `m45.jpg` → `ma5.jpg` en fin
++   * de `v00/c000`).
+    */
+   async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+     const readerUrl = chapterReaderUrl(mangaId, chapterId, 1);
+@@ -399,15 +423,19 @@
+     if (meta.chapterNumericId.length === 0) throw missingChapterIdError(chapterId, readerUrl);
+     if (meta.guidKey.length === 0) throw missingChapterKeyError(chapterId, readerUrl);
+ 
+-    const pages: string[] = [];
+-    for (let page = 1; page <= meta.imageCount; page += 1) {
+-      const url = chapterFunUrl(mangaId, chapterId, meta.chapterNumericId, page, meta.guidKey);
+-      // Un corps vide n'est PAS un chapitre vide : erreur explicite (Referer).
+-      const body = await this.fetchText(url, (target) => emptyChapterFunError(target, page));
+-      const image = parseChapterImageResponse(body);
+-      if (image.url.length === 0) throw chapterFunParseError(chapterId, page, url);
+-      pages.push(image.url);
+-    }
++    const pages = await mapWithConcurrency(
++      meta.imageCount,
++      CHAPTER_PAGE_CONCURRENCY,
++      async (index) => {
++        const page = index + 1;
++        const url = chapterFunUrl(mangaId, chapterId, meta.chapterNumericId, page, meta.guidKey);
++        // Un corps vide n'est PAS un chapitre vide : erreur explicite (Referer).
++        const body = await this.fetchText(url, (target) => emptyChapterFunError(target, page));
++        const image = parseChapterImageResponse(body);
++        if (image.url.length === 0) throw chapterFunParseError(chapterId, page, url);
++        return image.url;
++      },
++    );
+ 
+     if (pages.length === 0) throw noPagesError(chapterId);
+ 

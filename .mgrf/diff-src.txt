@@ -1,0 +1,316 @@
+diff -ru .mgrf/before/src/Fanfox/Common.ts src/Fanfox/Common.ts
+--- .mgrf/before/src/Fanfox/Common.ts	2026-10-18 20:17:36
++++ src/Fanfox/Common.ts	2026-10-18 20:43:36
+@@ -74,6 +74,30 @@
+ /** Chemin de l'endpoint des pages de chapitre, relatif au dossier du chapitre. */
+ export const CHAPTER_FUN_FILE = "chapterfun.ashx";
+ 
++/**
++ * Page publique « Lastest Updates » (lien « more » du bloc d'accueil) :
++ * 21 tuiles `manga-list-4`, AUCUNE pagination (`?page=2` renvoie la même liste).
++ */
++export const RELEASES_PATH = "/releases/";
++
++/**
++ * Page publique « Trending Manga » : 28 tuiles `manga-list-1` (2 listes de 14),
++ * AUCUNE pagination mesurée.
++ */
++export const TRENDING_PATH = "/trending/";
++
++/** Sections d'accueil publiées par la source (identifiants stables). */
++export const HOME_SECTION_LATEST = "latest_updates";
++export const HOME_SECTION_TRENDING = "trending";
++
++/** Classes des tuiles `manga-list-4` (`/search`, `/releases/`, accueil). */
++export const TILE_TITLE_CLASS_LIST4 = "manga-list-4-item-title";
++export const TILE_COVER_CLASS_LIST4 = "manga-list-4-cover";
++
++/** Classes des tuiles `manga-list-1` (`/trending/`, bloc « Hot Manga Releases »). */
++export const TILE_TITLE_CLASS_LIST1 = "manga-list-1-item-title";
++export const TILE_COVER_CLASS_LIST1 = "manga-list-1-cover";
++
+ /** User-Agent navigateur (aucune rotation, aucun contournement de protection). */
+ export const BROWSER_USER_AGENT =
+   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+@@ -169,6 +193,16 @@
+   return `${BASE_URL}/manga/${encodeURIComponent(mangaId)}/`;
+ }
+ 
++/** `GET /releases/` — dernières sorties (« Lastest Updates »), 21 tuiles. */
++export function releasesUrl(): string {
++  return `${BASE_URL}${RELEASES_PATH}`;
++}
++
++/** `GET /trending/` — séries tendance, 28 tuiles. */
++export function trendingUrl(): string {
++  return `${BASE_URL}${TRENDING_PATH}`;
++}
++
+ /** Lien de partage web d'une fiche série. */
+ export function mangaShareUrl(mangaId: string): string {
+   return seriesUrl(mangaId);
+@@ -648,13 +682,26 @@
+   return { items, hasMore: items.length >= SEARCH_PAGE_SIZE };
+ }
+ 
+-/** Tuiles de `/search` : `p.manga-list-4-item-title > a[href="/manga/<slug>/"]`. */
+-export function parseSearchTiles(html: string): FSeriesTile[] {
++/**
++ * Tuiles d'une page de listes `manga-list-*`.
++ *
++ * Un `<li>` est retenu si :
++ *   - il contient `p.<titleClass>` dont le premier `<a href>` pointe vers une
++ *     FICHE (`/manga/<slug>/`) — les liens de chapitre (« Latest Chapter »,
++ *     `…/c001/1.html`) sont donc ignorés ;
++ *   - sa couverture est une `<img>` portant `class="<coverClass>"` dans le MÊME
++ *     `<li>` (la classe est portée par l'`<img>`, pas par un conteneur).
++ *
++ * Structure mesurée le 2026-10-18 : identique pour `/search` et `/releases/`
++ * (`manga-list-4`) et pour `/trending/` (`manga-list-1`).
++ */
++export function parseTiles(html: string, titleClass: string, coverClass: string): FSeriesTile[] {
+   if (typeof html !== "string" || html.length === 0) return [];
+   const tiles: FSeriesTile[] = [];
++  const coverPattern = new RegExp(`\\b${escapeRegExp(coverClass)}\\b`, "i");
+ 
+   for (const block of listItemBlocks(html)) {
+-    const titleBlock = classHtml(block, "p", "manga-list-4-item-title");
++    const titleBlock = classHtml(block, "p", titleClass);
+     if (titleBlock.length === 0) continue;
+ 
+     const anchor = anchorTags(titleBlock)[0];
+@@ -664,10 +711,8 @@
+     const mangaId = mangaIdFromHref(href);
+     if (!mangaId) continue;
+ 
+-    // Couverture : l'`<img class="manga-list-4-cover">` vit dans le MÊME `<li>`
+-    // (mesuré : la classe est portée par l'`<img>`, pas par un `<p>` conteneur).
+     const cover = imageTags(block).find((tag) =>
+-      /\bmanga-list-4-cover\b/i.test(attributeOf(tag, "class") ?? ""),
++      coverPattern.test(attributeOf(tag, "class") ?? ""),
+     );
+     const src = cover ? attributeOf(cover, "src") ?? "" : "";
+ 
+@@ -679,6 +724,24 @@
+   }
+ 
+   return dedupeByKey(tiles, (tile) => tile.mangaId);
++}
++
++/** Tuiles de `/search` : `p.manga-list-4-item-title > a[href="/manga/<slug>/"]`. */
++export function parseSearchTiles(html: string): FSeriesTile[] {
++  return parseTiles(html, TILE_TITLE_CLASS_LIST4, TILE_COVER_CLASS_LIST4);
++}
++
++/**
++ * Tuiles de `/releases/` (« Lastest Updates ») — même structure `manga-list-4`
++ * que `/search`, sans pagination.
++ */
++export function parseReleaseTiles(html: string): FSeriesTile[] {
++  return parseTiles(html, TILE_TITLE_CLASS_LIST4, TILE_COVER_CLASS_LIST4);
++}
++
++/** Tuiles de `/trending/` : `p.manga-list-1-item-title` + `img.manga-list-1-cover`. */
++export function parseMangaList1Tiles(html: string): FSeriesTile[] {
++  return parseTiles(html, TILE_TITLE_CLASS_LIST1, TILE_COVER_CLASS_LIST1);
+ }
+ 
+ /**
+diff -ru .mgrf/before/src/Fanfox/Fanfox.ts src/Fanfox/Fanfox.ts
+--- .mgrf/before/src/Fanfox/Fanfox.ts	2026-10-18 20:31:51
++++ src/Fanfox/Fanfox.ts	2026-10-18 20:44:24
+@@ -2,6 +2,9 @@
+  * Fanfox — source Paperback 0.8 pour https://fanfox.net
+  *
+  * Couche données complète :
++ *   - sections d'accueil `GET /releases/` (« Lastest Updates », 21 tuiles) et
++ *     `GET /trending/` (« Trending Manga », 28 tuiles), publiées via l'intent
++ *     `HOMEPAGE_SECTIONS` (aucune pagination côté site) ;
+  *   - recherche paginée `GET /search?title=<q>&page=<n>` (HTML, 12 tuiles/page) ;
+  *   - fiche série `GET /manga/<slug>/` (titre, couverture, statut, auteur, tags,
+  *     synopsis COMPLET via `p.fullcontent`) ;
+@@ -24,6 +27,8 @@
+   Chapter,
+   ChapterDetails,
+   ContentRating,
++  HomeSection,
++  HomeSectionType,
+   PagedResults,
+   PartialSourceManga,
+   RequestManager,
+@@ -48,6 +53,8 @@
+   emptyChapterFunError,
+   errorMessageOf,
+   FanfoxInterceptor,
++  HOME_SECTION_LATEST,
++  HOME_SECTION_TRENDING,
+   httpStatusError,
+   httpStatusFromError,
+   isBlank,
+@@ -60,16 +67,20 @@
+   notFoundError,
+   parseChapterImageResponse,
+   parseChapterList,
++  parseMangaList1Tiles,
+   parseReaderMeta,
++  parseReleaseTiles,
+   parseSearchResults,
+   parseSeriesDetails,
++  releasesUrl,
+   searchUrl,
+   seriesUrl,
++  trendingUrl,
+ } from "./Common";
+ import { FChapterEntry, FSeriesTile } from "./data-contracts";
+ 
+ export const FanfoxInfo: SourceInfo = {
+-  version: "1.0.4",
++  version: "1.0.5",
+   name: "Fanfox",
+   icon: "icon.png",
+   author: "bigsolo-paperback08",
+@@ -77,18 +88,17 @@
+   contentRating: ContentRating.EVERYONE,
+   websiteBaseURL: BASE_URL,
+   language: LANG_CODE,
+-  // `intents` = MANGA_CHAPTERS SEUL, volontairement.
+-  //
+-  // • `HOMEPAGE_SECTIONS` est ABSENT : aucune section d'accueil n'est demandée
+-  //   pour cette source. Sans cet intent, l'application n'appelle jamais la
+-  //   méthode d'accueil et il n'y a donc aucune section vide à produire (le
+-  //   harnais officiel rejette toute section sans items).
+-  // • `MANGA_TRACKING` est ABSENT, et ne doit PAS être ajouté : il implique
+-  //   l'interface `MangaProgressProviding` (`getMangaProgress`,
++  // `MANGA_CHAPTERS` : fiches, listes de chapitres et pages de chapitre.
++  // `HOMEPAGE_SECTIONS` : la source publie deux sections d'accueil
++  //   (`getHomePageSections` / `getViewMoreItems`, cf. plus bas). Sans cet
++  //   intent, l'application n'appelait jamais la méthode d'accueil : Fanfox
++  //   n'apparaissait donc PAS sur l'écran d'accueil.
++  // `MANGA_TRACKING` reste VOLONTAIREMENT absent, et ne doit PAS être ajouté :
++  //   il implique l'interface `MangaProgressProviding` (`getMangaProgress`,
+   //   `getMangaProgressManagementForm`, `processChapterReadActionQueue`), qui
+-  //   n'est pas implémentée ici ⇒ erreurs JS à l'ouverture des fiches manga et
+-  //   des chapitres dans l'application (incident `t_810bda32` sur Bigsolo).
+-  intents: SourceIntents.MANGA_CHAPTERS,
++  //   n'est pas implémentée ici ⇒ erreurs JavaScript à l'ouverture des fiches
++  //   manga et des chapitres dans l'application (incident `t_810bda32`).
++  intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
+ };
+ 
+ /** Interceptor public (implémentation pure dans `Common.ts`). */
+@@ -185,6 +195,103 @@
+       title: tile.title,
+       image: tile.image,
+     });
++  }
++
++  /* ---------------------------------------------------------------- */
++  /* Accueil (intent HOMEPAGE_SECTIONS)                               */
++  /* ---------------------------------------------------------------- */
++
++  /**
++   * Sections de l'écran d'accueil, construites depuis DEUX pages PUBLIQUES
++   * mesurées le 2026-10-18 (aucune donnée inventée, aucun contournement) :
++   *   • `/releases/` — « Lastest Updates » du site (21 tuiles `manga-list-4`) ;
++   *   • `/trending/` — « Trending Manga » (28 tuiles `manga-list-1`).
++   *
++   * Aucune de ces deux pages n'est paginée : mesuré, `/releases/?page=2`
++   * renvoie EXACTEMENT la même liste que `/releases/`. Les sections sont donc
++   * publiées avec `containsMoreItems: false` et `getViewMoreItems` ne renvoie
++   * jamais d'items supplémentaires (voir plus bas).
++   *
++   * Robustesse : une page en échec (réseau, statut, corps vide, structure
++   * changée) n'invalide pas l'autre section ; elle est simplement non publiée.
++   * Une section VIDE n'est jamais transmise à l'application (le harnais officiel
++   * rejette `section[x] has no items`). Si AUCUNE section ne peut être
++   * construite, une erreur explicite est levée — avec les deux URLs et les
++   * motifs d'échec — plutôt que d'afficher un accueil silencieusement vide.
++   *
++   * IMPORTANT (règle native) : sections et items sont construits par les
++   * fabriques du runtime (`App.createHomeSection`, `App.createPartialSourceManga`).
++   * Aucun objet JavaScript brut n'est transmis à une API native.
++   */
++  async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
++    const problems: string[] = [];
++
++    const latest = await this.homeTiles(releasesUrl(), parseReleaseTiles, problems);
++    if (latest.length > 0) {
++      sectionCallback(
++        App.createHomeSection({
++          id: HOME_SECTION_LATEST,
++          title: "Dernières sorties",
++          type: HomeSectionType.singleRowNormal,
++          items: latest.map((tile) => this.toPartialSourceManga(tile)),
++          containsMoreItems: false,
++        }),
++      );
++    }
++
++    const trending = await this.homeTiles(trendingUrl(), parseMangaList1Tiles, problems);
++    if (trending.length > 0) {
++      sectionCallback(
++        App.createHomeSection({
++          id: HOME_SECTION_TRENDING,
++          title: "Tendances",
++          type: HomeSectionType.singleRowLarge,
++          items: trending.map((tile) => this.toPartialSourceManga(tile)),
++          containsMoreItems: false,
++        }),
++      );
++    }
++
++    if (latest.length === 0 && trending.length === 0) {
++      throw new Error(
++        `Fanfox : aucune section d'accueil n'a pu être construite (${problems.join(" | ")}).`,
++      );
++    }
++  }
++
++  /**
++   * « Voir plus » d'une section d'accueil.
++   *
++   * Le site n'offre AUCUNE pagination sur les pages exploitées (`/releases/`,
++   * `/trending/`) : les sections sont donc publiées avec
++   * `containsMoreItems: false` et il n'existe pas de page suivante à renvoyer.
++   * On répond une liste vide SANS lever d'erreur (ni pour un identifiant de
++   * section inconnu) : aucune boucle de pagination ne peut s'installer.
++   */
++  async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
++    void homepageSectionId;
++    void metadata;
++    return App.createPagedResults({ results: [], metadata: undefined });
++  }
++
++  /**
++   * Tuiles d'une page publique destinée à l'accueil. Un échec est consigné dans
++   * `problems` et traité comme une liste vide : les autres sections restent
++   * publiées (aucune exception ne remonte à l'application pour une seule page
++   * indisponible).
++   */
++  private async homeTiles(
++    url: string,
++    parse: (html: string) => FSeriesTile[],
++    problems: string[],
++  ): Promise<FSeriesTile[]> {
++    try {
++      const html = await this.fetchText(url, emptyBodyError);
++      return parse(html);
++    } catch (error) {
++      problems.push(`${url} : ${errorMessageOf(error)}`);
++      return [];
++    }
+   }
+ 
+   /* ---------------------------------------------------------------- */
+diff -ru .mgrf/before/src/Fanfox/data-contracts.ts src/Fanfox/data-contracts.ts
+--- .mgrf/before/src/Fanfox/data-contracts.ts	2026-10-18 20:17:36
++++ src/Fanfox/data-contracts.ts	2026-10-18 20:44:31
+@@ -4,6 +4,8 @@
+  * Ces interfaces décrivent uniquement les entités extraites du HTML / du JS
+  * public de `https://fanfox.net`, relevées par requêtes réelles (UA navigateur,
+  * ≥ 1 s entre requêtes) dans ce workspace :
++ *   - GET /releases/                                     -> HTML (21 tuiles « Lastest Updates »)
++ *   - GET /trending/                                     -> HTML (28 tuiles « Trending Manga »)
+  *   - GET /search?title=<q>&page=<n>                     -> HTML (12 tuiles / page)
+  *   - GET /manga/<slug>/                                 -> HTML (fiche + chapitres)
+  *   - GET /manga/<slug>/<chapterId>/1.html                -> HTML (lecteur, imagecount)

@@ -1,0 +1,20 @@
+{
+  "name": "bigsolo-repo-neuf",
+  "version": "0.1.0",
+  "repositoryName": "Bigsolo (depot neuf - 1 source)",
+  "private": true,
+  "scripts": {
+    "bundle": "paperback bundle",
+    "serve": "paperback serve -p 8080",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "paperback test"
+  },
+  "devDependencies": {
+    "@paperback/toolchain": "0.8.7",
+    "@paperback/types": "0.8.7",
+    "typescript": "4.8.3"
+  },
+  "overrides": {
+    "@types/node": "20.14.10"
+  }
+}

@@ -1,0 +1,78 @@
+--- .mgrf/perf/src-before/src/Fanfox/Common.ts	2026-10-18 20:43:36
++++ src/Fanfox/Common.ts	2026-10-18 21:05:30
+@@ -75,6 +75,22 @@
+ export const CHAPTER_FUN_FILE = "chapterfun.ashx";
+ 
+ /**
++ * Concurrence BORNÉE des appels `chapterfun.ashx` d'un même chapitre.
++ *
++ * Mesuré le 2026-10-18 (harnais `.mgrf/perf/harness.js`, `requestsPerSecond` du
++ * manager modélisé) : la boucle séquentielle coûtait exactement `1 + imagecount`
++ * intervalles de débit (18 172 ms pour 18 pages, 46 225 ms pour 46 pages à
++ * 1 req/s). Les appels sont indépendants les uns des autres : les émettre par
++ * vagues bornées ne change NI les URLs obtenues NI leur ordre (les résultats
++ * sont replacés par index de page, jamais dans l'ordre d'arrivée), mais ramène
++ * la durée à `(1 + imagecount) / requestsPerSecond`.
++ *
++ * Valeur volontairement MODÉRÉE (5 requêtes en vol au maximum, jamais une
++ * rafale non bornée) : au plus 5 connexions simultanées vers fanfox.net.
++ */
++export const CHAPTER_PAGE_CONCURRENCY = 5;
++
++/**
+  * Page publique « Lastest Updates » (lien « more » du bloc d'accueil) :
+  * 21 tuiles `manga-list-4`, AUCUNE pagination (`?page=2` renvoie la même liste).
+  */
+@@ -397,6 +413,52 @@
+ /** Échappe une chaîne pour l'utiliser comme littéral dans un `RegExp`. */
+ export function escapeRegExp(value: string): string {
+   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
++}
++
++/* ------------------------------------------------------------------ */
++/* Exécution bornée (parallélisation contrôlée)                        */
++/* ------------------------------------------------------------------ */
++
++/**
++ * Applique `worker` aux indices `0..count-1` avec AU PLUS `limit` tâches en vol
++ * simultanément, et renvoie les résultats **dans l'ordre des indices** (jamais
++ * dans l'ordre d'arrivée) : l'ordre de sortie est donc strictement celui de la
++ * boucle séquentielle équivalente.
++ *
++ * Le pool reste BORNÉ (aucune rafale : le nombre de requêtes en vol ne dépasse
++ * jamais `limit`), et la première erreur est propagée telle quelle — soit
++ * exactement le comportement de la boucle `for` séquentielle.
++ *
++ * Fonction pure : aucun accès au global `App`, aucun import runtime ⇒ testable
++ * en Node pur.
++ */
++export async function mapWithConcurrency<T>(
++  count: number,
++  limit: number,
++  worker: (index: number) => Promise<T>,
++): Promise<T[]> {
++  const total = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
++  const inFlight = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1;
++  const results: T[] = new Array<T>(total);
++  let next = 0;
++
++  const run = async (): Promise<void> => {
++    for (;;) {
++      const index = next;
++      next += 1;
++      if (index >= total) return;
++      // Les tâches partagent le compteur `next` : chacune prend l'index suivant
++      // tant qu'il en reste, ce qui borne naturellement les tâches en vol.
++      results[index] = await worker(index);
++    }
++  };
++
++  const runners: Array<Promise<void>> = [];
++  for (let started = 0; started < Math.min(inFlight, total); started += 1) {
++    runners.push(run());
++  }
++  await Promise.all(runners);
++  return results;
+ }
+ 
+ /* ------------------------------------------------------------------ */
