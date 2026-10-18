@@ -33,6 +33,20 @@
  * (`e(c)` = nom du jeton en base `a`, remplacement `\b<jeton>\b` de `c-1` à `0`).
  *
  * ------------------------------------------------------------------------
+ * Deux formats de page lecteur — mesuré le 2026-10-18
+ * ------------------------------------------------------------------------
+ * Le MÊME site sert deux formes de `/manga/<slug>/<chapterId>/1.html` :
+ *   • format A : la page écrit la clé `guidkey` (script packé) et les images
+ *     s'obtiennent par un appel PAR PAGE à `chapterfun.ashx` ;
+ *   • format B : la page embarque DIRECTEMENT la liste complète des URLs
+ *     d'images dans un script packé (`var newImgs=['//<hôte>/…jpg?token=…']`) :
+ *     `parseEmbeddedImageUrls` la déballe en pur et la renvoie dans l'ordre du
+ *     tableau. Mesuré sur `oshi_no_shuuchakushin_wo_namete_ita/c001` (98 URLs
+ *     embarquées pour `imagecount=98`, AUCUN `guidkey`) ; les pages de format A
+ *     mesurées (`one_piece`, `naruto`, `bleach`, `grand_blue`) ne portent, elles,
+ *     aucun tableau d'URLs ⇒ la détection du format B ne les affecte pas.
+ *
+ * ------------------------------------------------------------------------
  * Referer — mesuré le 2026-10-18
  * ------------------------------------------------------------------------
  * Le CDN d'images (hôtes variables, observés dans `var pix`) répond **403 sans
@@ -698,6 +712,82 @@ export function unpackPacked(source: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Format B — URLs d'images EMBARQUÉES dans la page de lecture          */
+/* ------------------------------------------------------------------ */
+/*
+ * Mesuré le 2026-10-18 sur `oshi_no_shuuchakushin_wo_namete_ita/c001/1.html`
+ * (HTTP 200, `imagecount=98`, `#dm5_key` vide, AUCUN `guidkey`) : fanfox.net
+ * sert, pour une partie des séries, un SECOND format de page lecteur où la
+ * liste COMPLÈTE des URLs d'images est embarquée dans un script packé :
+ *
+ *   eval(…('var newImgs=[\'//<hôte>/…/v001.jpg?token=…&ttl=…\', …]',…))
+ *
+ * Le script déballé (déballage PUR, aucun `eval`) contient donc un tableau
+ * `var <ident>=[ '<url>', … ]` dont l'ORDRE est l'ordre de lecture. Aucune clé
+ * `guidkey` ni appel `chapterfun.ashx` n'est nécessaire dans ce format : la
+ * page suffit (1 requête au lieu de `1 + imagecount`).
+ *
+ * Ces helpers restent PURS (aucun `App`, aucun import runtime) et ne
+ * reconstitutionnent jamais une URL : ils ne gardent que les entrées de type
+ * URL d'image, telles qu'elles sont écrites dans le tableau, dans l'ordre.
+ */
+
+/**
+ * Extension de fichier image reconnue (avec une éventuelle requête `?token=…`
+ * ou un fragment). Sert à distinguer une URL d'image d'une autre chaîne du
+ * tableau (identifiant, libellé…).
+ */
+const IMAGE_FILE_EXTENSION = /\.(?:jpe?g|png|webp|gif|bmp|avif)(?:[?#][^\s"'<>]*)?$/i;
+
+/**
+ * Vrai si la valeur est une URL d'image ABSOLUE (`https://…`) ou
+ * PROTOCOLE-RELATIVE (`//<hôte>/…`) désignant un fichier image.
+ */
+export function isImageUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const candidate = value.trim();
+  if (!/^(?:\/\/|https?:\/\/)/i.test(candidate)) return false;
+  return IMAGE_FILE_EXTENSION.test(candidate);
+}
+
+/** Corps des tableaux `var <ident> = [ … ];` d'un script (forme mesurée). */
+const ARRAY_ASSIGNMENT = /(?:^|[^\w$])([A-Za-z_$][\w$]*)\s*=\s*\[([\s\S]*?)\]\s*;/g;
+
+/** Corps des tableaux affectés à une variable dans `script`, dans l'ordre. */
+function assignedArrayBodies(script: string): string[] {
+  const bodies: string[] = [];
+  for (const match of script.matchAll(ARRAY_ASSIGNMENT)) bodies.push(match[2]);
+  return bodies;
+}
+
+/**
+ * URLs d'images embarquées par la page de lecture (**format B**), dans l'ordre
+ * du tableau (donc dans l'ordre de lecture), ou `[]` si la page ne porte pas ce
+ * format (page du format A classique, page d'erreur, blocage…).
+ *
+ * Seuls les scripts packés déballés sont explorés : c'est la forme MESURÉE du
+ * format B. Un tableau vide ou sans URL d'image n'est jamais retenu, et aucune
+ * URL n'est ni déduite ni complétée — une entrée non reconnue est simplement
+ * ignorée (l'équivalence avec `imagecount` est vérifiée par l'appelant).
+ */
+export function parseEmbeddedImageUrls(html: string): string[] {
+  if (typeof html !== "string" || html.length === 0) return [];
+
+  for (const script of unpackPackedScripts(html)) {
+    for (const body of assignedArrayBodies(script)) {
+      const urls = (body.match(/'[^']*'|"[^"]*"/g) ?? [])
+        .map((quoted) => quoted.slice(1, -1).trim())
+        .filter((value) => isImageUrl(value))
+        .map((value) => resolveCdnUrl("", value))
+        .filter((value) => value.length > 0);
+      if (urls.length > 0) return urls;
+    }
+  }
+
+  return [];
+}
+
+/* ------------------------------------------------------------------ */
 /* Parseurs publics (purs, testables hors runtime)                     */
 /* ------------------------------------------------------------------ */
 
@@ -1076,11 +1166,20 @@ export function chapterFunParseError(chapterId: string, page: number, url: strin
   );
 }
 
-/** La page de lecture n'expose pas la clé `guidkey` : chapitre illisible. */
-export function missingChapterKeyError(chapterId: string, url: string): Error {
+/**
+ * La page de lecture n'expose NI tableau d'URLs embarqué (format B) NI clé
+ * `guidkey` (format A) : chapitre illisible par les DEUX formats connus.
+ *
+ * `otherFormats` décrit, s'il y en a un, l'échec du format essayé en premier
+ * (aujourd'hui : format B rejeté parce que le nombre d'URLs embarquées ne
+ * correspondait pas à `imagecount`) afin que le diagnostic reste complet.
+ */
+export function missingChapterKeyError(chapterId: string, url: string, otherFormats = ""): Error {
+  const detail = otherFormats.trim().length > 0 ? ` Échec du format B : ${otherFormats.trim()}.` : "";
   return new Error(
     `Clé de lecture (guidkey) introuvable pour le chapitre ${chapterId} sur fanfox.net (${url}). ` +
-      `Le format du lecteur a peut-être changé ; aucune page n'est inventée.`,
+      `Le format du lecteur a peut-être changé ; aucune page n'est inventée.` +
+      detail,
   );
 }
 

@@ -10,12 +10,16 @@
  *     synopsis COMPLET via `p.fullcontent`) ;
  *   - liste des chapitres : dans la MÊME page, union de `div#list-1` et
  *     `div#list-2` (`div#chapterlist`) — liste complète, aucune pagination ;
- *   - pages de chapitre : `GET /manga/<slug>/<chapterId>/1.html` (imagecount +
- *     clé `guidkey` déballée en pur), puis les appels
- *     `chapterfun.ashx?cid=…&page=<n>&key=…` (un par page) émis par vagues
- *     BORNÉES (5 en vol au maximum, `requestsPerSecond: 4`) ; l'URL d'image est
- *     reconstruite depuis `var pix` + `pvalue[0]` ⇒ aucun hôte CDN codé en dur,
- *     aucune déduction d'URL ;
+ *   - pages de chapitre, DEUX formats de page lecteur pris en charge :
+ *     • format B (liste d'images EMBARQUÉE, toujours packée) : la page
+ *       `/manga/<slug>/<chapterId>/1.html` contient un tableau
+ *       `var <ident>=[ '//<hôte>/…jpg?token=…', … ]` ⇒ 1 SEULE requête pour tout
+ *       le chapitre, URLs reprises dans l'ordre du tableau ;
+ *     • format A sinon : `imagecount` + clé `guidkey` déballée en pur, puis les
+ *       appels `chapterfun.ashx?cid=…&page=<n>&key=…` (un par page) émis par
+ *       vagues BORNÉES (5 en vol au maximum, `requestsPerSecond: 4`) ; l'URL
+ *       d'image est reconstruite depuis `var pix` + `pvalue[0]` ⇒ aucun hôte
+ *       CDN codé en dur, aucune déduction d'URL ;
  *   - User-Agent navigateur + `Referer: https://fanfox.net/` posés par
  *     `FanfoxInterceptor` (le CDN répond 403 sans Referer d'hôte fanfox.net) ;
  *   - erreurs 403 / 404 / autres / corps vide traduites explicitement, sans
@@ -71,6 +75,7 @@ import {
   notFoundError,
   parseChapterImageResponse,
   parseChapterList,
+  parseEmbeddedImageUrls,
   parseMangaList1Tiles,
   parseReaderMeta,
   parseReleaseTiles,
@@ -84,7 +89,7 @@ import {
 import { FChapterEntry, FSeriesTile } from "./data-contracts";
 
 export const FanfoxInfo: SourceInfo = {
-  version: "1.0.6",
+  version: "1.0.7",
   name: "Fanfox",
   icon: "icon.png",
   author: "bigsolo-paperback08",
@@ -387,13 +392,24 @@ export class Fanfox extends Source {
   }
 
   /**
-   * Pages d'un chapitre :
-   *   1. page de lecture `…/<chapterId>/1.html` ⇒ `chapterid` + `imagecount` +
-   *      clé `guidkey` (déballée en pur, sans `eval`) ;
-   *   2. appels `chapterfun.ashx?cid=<chapterid>&page=<n>&key=<guidkey>` pour
-   *      `n = 1..imagecount`, émis par VAGUES BORNÉES
-   *      (`CHAPTER_PAGE_CONCURRENCY` en vol au maximum), puis `pvalue[0]` +
-   *      `var pix` ⇒ URL absolue.
+   * Pages d'un chapitre — DEUX formats de page lecteur sont pris en charge
+   * (incident `t_c75d5d7d`) :
+   *
+   *   • **format B d'abord** : la page embarque la liste COMPLÈTE des URLs
+   *     d'images dans un script packé (`var newImgs=['//<hôte>/…jpg?token=…']`).
+   *     On la déballe en pur (aucun `eval`) et on renvoie ces URLs dans l'ordre
+   *     du tableau ⇒ **1 seule requête** au lieu de `1 + imagecount` (mesuré :
+   *     `oshi_no_shuuchakushin_wo_namete_ita/c001`, 98 pages, 1 requête).
+   *     Le format B n'est retenu que si le nombre d'URLs embarquées correspond
+   *     à `imagecount` quand la page l'annonce : un désaccord n'est jamais
+   *     tronqué en silence, il retombe sur le format A et reste consigné dans
+   *     le message d'erreur si le format A échoue à son tour.
+   *   • **format A sinon** : page de lecture `…/<chapterId>/1.html` ⇒
+   *     `chapterid` + `imagecount` + clé `guidkey` (déballée en pur, sans
+   *     `eval`), puis appels `chapterfun.ashx?cid=<chapterid>&page=<n>&key=
+   *     <guidkey>` pour `n = 1..imagecount`, émis par VAGUES BORNÉES
+   *     (`CHAPTER_PAGE_CONCURRENCY` en vol au maximum), puis `pvalue[0]` +
+   *     `var pix` ⇒ URL absolue.
    *
    * PERFORMANCE (mesuré le 2026-10-18) : le coût était de `1 + imagecount`
    * requêtes SÉQUENTIELLES, donc `1 + imagecount` intervalles de débit — 18 172 ms
@@ -402,9 +418,9 @@ export class Fanfox extends Source {
    * d'arrivée) : la liste produite est identique, dans le même ordre, à celle de
    * la boucle séquentielle (comparaison de listes, `.mgrf/perf/compare.js`).
    *
-   * LIMITE CONNUE — un appel PAR PAGE reste la règle : mesuré le 2026-10-18 sur
-   * `one_piece/vTBE/c1196` (18 p.) et `bleach/v00/c000` (46 p.), `pvalue[1]`
-   * correspondait à la page suivante dans les 62 couples vérifiables
+   * LIMITE CONNUE — un appel PAR PAGE reste la règle du format A : mesuré le
+   * 2026-10-18 sur `one_piece/vTBE/c1196` (18 p.) et `bleach/v00/c000` (46 p.),
+   * `pvalue[1]` correspondait à la page suivante dans les 62 couples vérifiables
    * (`.mgrf/perf/probe-pairs.js`). La piste « demi-requêtes + rattrapage »
    * (appeler les seules pages impaires) n'est PAS retenue pour autant : la
    * preuve ne porte que sur 2 chapitres, un désaccord éventuel serait SILENCIEUX
@@ -419,9 +435,26 @@ export class Fanfox extends Source {
     const readerHtml = await this.fetchText(readerUrl, emptyBodyError);
     const meta = parseReaderMeta(readerHtml);
 
+    // ---- Format B : liste d'images embarquée dans la page ----
+    const embedded = parseEmbeddedImageUrls(readerHtml);
+    const formatBProblem =
+      embedded.length > 0 && meta.imageCount > 0 && embedded.length !== meta.imageCount
+        ? `${embedded.length} URL(s) d'images embarquées alors que la page annonce imagecount=${meta.imageCount}`
+        : "";
+    if (embedded.length > 0 && formatBProblem.length === 0) {
+      return App.createChapterDetails({
+        id: chapterId,
+        mangaId,
+        pages: embedded,
+      });
+    }
+
+    // ---- Format A : clé `guidkey` + un appel `chapterfun.ashx` par page ----
     if (meta.imageCount <= 0) throw noPagesError(chapterId);
     if (meta.chapterNumericId.length === 0) throw missingChapterIdError(chapterId, readerUrl);
-    if (meta.guidKey.length === 0) throw missingChapterKeyError(chapterId, readerUrl);
+    if (meta.guidKey.length === 0) {
+      throw missingChapterKeyError(chapterId, readerUrl, formatBProblem);
+    }
 
     const pages = await mapWithConcurrency(
       meta.imageCount,

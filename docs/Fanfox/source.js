@@ -1098,6 +1098,29 @@ var _Sources = (() => {
   function unpackPackedScripts(source) {
     return findPackerCalls(source).map((call) => unpackPackerCall(call));
   }
+  var IMAGE_FILE_EXTENSION = /\.(?:jpe?g|png|webp|gif|bmp|avif)(?:[?#][^\s"'<>]*)?$/i;
+  function isImageUrl(value) {
+    if (typeof value !== "string") return false;
+    const candidate = value.trim();
+    if (!/^(?:\/\/|https?:\/\/)/i.test(candidate)) return false;
+    return IMAGE_FILE_EXTENSION.test(candidate);
+  }
+  var ARRAY_ASSIGNMENT = /(?:^|[^\w$])([A-Za-z_$][\w$]*)\s*=\s*\[([\s\S]*?)\]\s*;/g;
+  function assignedArrayBodies(script) {
+    const bodies = [];
+    for (const match of script.matchAll(ARRAY_ASSIGNMENT)) bodies.push(match[2]);
+    return bodies;
+  }
+  function parseEmbeddedImageUrls(html) {
+    if (typeof html !== "string" || html.length === 0) return [];
+    for (const script of unpackPackedScripts(html)) {
+      for (const body of assignedArrayBodies(script)) {
+        const urls = (body.match(/'[^']*'|"[^"]*"/g) ?? []).map((quoted) => quoted.slice(1, -1).trim()).filter((value) => isImageUrl(value)).map((value) => resolveCdnUrl("", value)).filter((value) => value.length > 0);
+        if (urls.length > 0) return urls;
+      }
+    }
+    return [];
+  }
   function mangaIdFromHref(href) {
     const value = typeof href === "string" ? href.trim() : "";
     if (value.length === 0) return void 0;
@@ -1313,9 +1336,10 @@ var _Sources = (() => {
       `R\xE9ponse inattendue de chapterfun.ashx pour la page ${page} du chapitre ${chapterId} (${url}) : aucune URL d'image (var pix / pvalue[0]) n'a pu \xEAtre extraite.`
     );
   }
-  function missingChapterKeyError(chapterId, url) {
+  function missingChapterKeyError(chapterId, url, otherFormats = "") {
+    const detail = otherFormats.trim().length > 0 ? ` \xC9chec du format B : ${otherFormats.trim()}.` : "";
     return new Error(
-      `Cl\xE9 de lecture (guidkey) introuvable pour le chapitre ${chapterId} sur fanfox.net (${url}). Le format du lecteur a peut-\xEAtre chang\xE9 ; aucune page n'est invent\xE9e.`
+      `Cl\xE9 de lecture (guidkey) introuvable pour le chapitre ${chapterId} sur fanfox.net (${url}). Le format du lecteur a peut-\xEAtre chang\xE9 ; aucune page n'est invent\xE9e.` + detail
     );
   }
   function missingChapterIdError(chapterId, url) {
@@ -1346,7 +1370,7 @@ var _Sources = (() => {
 
   // src/Fanfox/Fanfox.ts
   var FanfoxInfo = {
-    version: "1.0.6",
+    version: "1.0.7",
     name: "Fanfox",
     icon: "icon.png",
     author: "bigsolo-paperback08",
@@ -1588,13 +1612,24 @@ var _Sources = (() => {
       });
     }
     /**
-     * Pages d'un chapitre :
-     *   1. page de lecture `…/<chapterId>/1.html` ⇒ `chapterid` + `imagecount` +
-     *      clé `guidkey` (déballée en pur, sans `eval`) ;
-     *   2. appels `chapterfun.ashx?cid=<chapterid>&page=<n>&key=<guidkey>` pour
-     *      `n = 1..imagecount`, émis par VAGUES BORNÉES
-     *      (`CHAPTER_PAGE_CONCURRENCY` en vol au maximum), puis `pvalue[0]` +
-     *      `var pix` ⇒ URL absolue.
+     * Pages d'un chapitre — DEUX formats de page lecteur sont pris en charge
+     * (incident `t_c75d5d7d`) :
+     *
+     *   • **format B d'abord** : la page embarque la liste COMPLÈTE des URLs
+     *     d'images dans un script packé (`var newImgs=['//<hôte>/…jpg?token=…']`).
+     *     On la déballe en pur (aucun `eval`) et on renvoie ces URLs dans l'ordre
+     *     du tableau ⇒ **1 seule requête** au lieu de `1 + imagecount` (mesuré :
+     *     `oshi_no_shuuchakushin_wo_namete_ita/c001`, 98 pages, 1 requête).
+     *     Le format B n'est retenu que si le nombre d'URLs embarquées correspond
+     *     à `imagecount` quand la page l'annonce : un désaccord n'est jamais
+     *     tronqué en silence, il retombe sur le format A et reste consigné dans
+     *     le message d'erreur si le format A échoue à son tour.
+     *   • **format A sinon** : page de lecture `…/<chapterId>/1.html` ⇒
+     *     `chapterid` + `imagecount` + clé `guidkey` (déballée en pur, sans
+     *     `eval`), puis appels `chapterfun.ashx?cid=<chapterid>&page=<n>&key=
+     *     <guidkey>` pour `n = 1..imagecount`, émis par VAGUES BORNÉES
+     *     (`CHAPTER_PAGE_CONCURRENCY` en vol au maximum), puis `pvalue[0]` +
+     *     `var pix` ⇒ URL absolue.
      *
      * PERFORMANCE (mesuré le 2026-10-18) : le coût était de `1 + imagecount`
      * requêtes SÉQUENTIELLES, donc `1 + imagecount` intervalles de débit — 18 172 ms
@@ -1603,9 +1638,9 @@ var _Sources = (() => {
      * d'arrivée) : la liste produite est identique, dans le même ordre, à celle de
      * la boucle séquentielle (comparaison de listes, `.mgrf/perf/compare.js`).
      *
-     * LIMITE CONNUE — un appel PAR PAGE reste la règle : mesuré le 2026-10-18 sur
-     * `one_piece/vTBE/c1196` (18 p.) et `bleach/v00/c000` (46 p.), `pvalue[1]`
-     * correspondait à la page suivante dans les 62 couples vérifiables
+     * LIMITE CONNUE — un appel PAR PAGE reste la règle du format A : mesuré le
+     * 2026-10-18 sur `one_piece/vTBE/c1196` (18 p.) et `bleach/v00/c000` (46 p.),
+     * `pvalue[1]` correspondait à la page suivante dans les 62 couples vérifiables
      * (`.mgrf/perf/probe-pairs.js`). La piste « demi-requêtes + rattrapage »
      * (appeler les seules pages impaires) n'est PAS retenue pour autant : la
      * preuve ne porte que sur 2 chapitres, un désaccord éventuel serait SILENCIEUX
@@ -1619,9 +1654,20 @@ var _Sources = (() => {
       const readerUrl = chapterReaderUrl(mangaId, chapterId, 1);
       const readerHtml = await this.fetchText(readerUrl, emptyBodyError);
       const meta = parseReaderMeta(readerHtml);
+      const embedded = parseEmbeddedImageUrls(readerHtml);
+      const formatBProblem = embedded.length > 0 && meta.imageCount > 0 && embedded.length !== meta.imageCount ? `${embedded.length} URL(s) d'images embarqu\xE9es alors que la page annonce imagecount=${meta.imageCount}` : "";
+      if (embedded.length > 0 && formatBProblem.length === 0) {
+        return App.createChapterDetails({
+          id: chapterId,
+          mangaId,
+          pages: embedded
+        });
+      }
       if (meta.imageCount <= 0) throw noPagesError(chapterId);
       if (meta.chapterNumericId.length === 0) throw missingChapterIdError(chapterId, readerUrl);
-      if (meta.guidKey.length === 0) throw missingChapterKeyError(chapterId, readerUrl);
+      if (meta.guidKey.length === 0) {
+        throw missingChapterKeyError(chapterId, readerUrl, formatBProblem);
+      }
       const pages = await mapWithConcurrency(
         meta.imageCount,
         CHAPTER_PAGE_CONCURRENCY,
