@@ -72,7 +72,7 @@ export const WeebCentralInfo: SourceInfo = {
   version: "1.0.1",
   name: "WeebCentral",
   icon: "icon.png",
-  author: "bigsolo-paperback08",
+  author: "ATC's Extensions",
   description: "Source Paperback 0.8 pour weebcentral.com (lecture manga, anglais).",
   contentRating: ContentRating.EVERYONE,
   websiteBaseURL: BASE_URL,

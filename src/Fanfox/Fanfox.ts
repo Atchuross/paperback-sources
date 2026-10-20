@@ -92,7 +92,7 @@ export const FanfoxInfo: SourceInfo = {
   version: "1.0.7",
   name: "Fanfox",
   icon: "icon.png",
-  author: "bigsolo-paperback08",
+  author: "ATC's Extensions",
   description: "Source Paperback 0.8 pour fanfox.net (lecture manga, anglais).",
   contentRating: ContentRating.EVERYONE,
   websiteBaseURL: BASE_URL,

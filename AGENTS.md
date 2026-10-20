@@ -39,6 +39,20 @@ validation. Un agent ne pousse jamais de sa propre initiative.
 `./deploy.sh "message"` **sans** `--prod` prépare et commite **en local uniquement**
 (aucun push). C'est le mode par défaut.
 
+## Version du dépôt (règle A)
+
+**Toute modification de `src/` (ajout OU modification d'une source) incrémente la
+version du dépôt en `minor`** : `0.1.0 → 0.2.0 → 0.3.0…`
+
+- C'est **automatique** : `deploy.sh` détecte les changements dans `src/` et applique
+  `--bump minor` tout seul.
+- Le **nom affiché** dans Paperback est dérivé de cette version :
+  `ATC's Extensions (0.2)`, `ATC's Extensions (0.3)`, … (voir `tools/sync_repo_name.py`).
+- Pour un cas particulier : `--bump patch` / `--bump major`, ou `--no-bump` pour forcer
+  sans incrément (à éviter).
+- Conséquence côté app : après une publication, il faut **rafraîchir le dépôt** (et le
+  supprimer/rajouter pour voir le nouveau nom, que l'app garde en cache).
+
 ## Rappels techniques (chaque écart a déjà cassé quelque chose)
 
 - **Tout objet passé à l'API native doit venir de `App.createXxx(...)`.** Un objet

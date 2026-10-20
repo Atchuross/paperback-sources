@@ -80,7 +80,7 @@ export const BigsoloInfo: SourceInfo = {
   version: "0.2.2",
   name: "Bigsolo",
   icon: "icon.png",
-  author: "bigsolo-paperback08",
+  author: "ATC's Extensions",
   description: "Source Paperback 0.8 pour bigsolo.org (MVP phase 2).",
   contentRating: ContentRating.EVERYONE,
   websiteBaseURL: BASE_URL,

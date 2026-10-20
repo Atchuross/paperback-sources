@@ -1,7 +1,7 @@
 {
-  "name": "bigsolo-repo-neuf",
-  "version": "0.1.0",
-  "repositoryName": "Bigsolo (depot neuf - 1 source)",
+  "name": "atcs-extensions",
+  "version": "0.2.0",
+  "repositoryName": "ATC's Extensions (0.2)",
   "private": true,
   "scripts": {
     "bundle": "paperback bundle",
