@@ -816,7 +816,9 @@ var _Sources = (() => {
   function absoluteUrl(href) {
     const value = typeof href === "string" ? href.trim() : "";
     if (value.length === 0) return "";
-    if (/^https?:\/\//i.test(value)) return value;
+    if (/^https?:\/\//i.test(value)) {
+      return value.replace(/^http:\/\//i, "https://");
+    }
     if (value.startsWith("//")) return `https:${value}`;
     return value.startsWith("/") ? `${BASE_URL}${value}` : `${BASE_URL}/${value}`;
   }
@@ -1370,7 +1372,7 @@ var _Sources = (() => {
 
   // src/Fanfox/Fanfox.ts
   var FanfoxInfo = {
-    version: "1.0.7",
+    version: "1.0.8",
     name: "Fanfox",
     icon: "icon.png",
     author: "ATC's Extensions",

@@ -268,7 +268,12 @@ export function chapterFunUrl(
 export function absoluteUrl(href: string): string {
   const value = typeof href === "string" ? href.trim() : "";
   if (value.length === 0) return "";
-  if (/^https?:\/\//i.test(value)) return value;
+  if (/^https?:\/\//i.test(value)) {
+    // Les pages fanfox servent désormais les couvertures en `http://`.
+    // iOS (App Transport Security) bloque le HTTP en clair : l'image ne
+    // s'affiche jamais. Le CDN répond aussi en HTTPS ⇒ on force le schéma.
+    return value.replace(/^http:\/\//i, "https://");
+  }
   if (value.startsWith("//")) return `https:${value}`;
   return value.startsWith("/") ? `${BASE_URL}${value}` : `${BASE_URL}/${value}`;
 }

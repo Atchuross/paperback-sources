@@ -89,7 +89,7 @@ import {
 import { FChapterEntry, FSeriesTile } from "./data-contracts";
 
 export const FanfoxInfo: SourceInfo = {
-  version: "1.0.7",
+  version: "1.0.8",
   name: "Fanfox",
   icon: "icon.png",
   author: "ATC's Extensions",
