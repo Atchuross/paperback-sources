@@ -1,0 +1,26 @@
+{
+  "_fixture": "Réponse réelle de GET https://api.asurascans.com/api/series/solo-farming-in-the-tower/chapters/100.5 (2026-11-13, HTTP 200, 35 198 o), trimmée à sa seule page. Chapitre DÉCIMAL, gratuit et lisible : number = 100.5, page_count = 1. Prouve que le numéro décimal traverse le mapper pur.",
+  "data": {
+    "access_gate": "",
+    "is_locked": false,
+    "unlock_time": null,
+    "chapter": {
+      "id": 167240,
+      "series_id": 2201,
+      "number": 100.5,
+      "title": null,
+      "slug": "2896fb06-02b4-4366-9eab-1e097b6bd42f",
+      "page_count": 1,
+      "is_premium": false,
+      "early_access_until": null,
+      "published_at": "2025-12-25T22:21:13Z",
+      "pages": [
+        {
+          "url": "https://cdn.asurascans.com/asura-images/chapters/solo-farming-in-the-tower/100.5/001.webp?v=1779524162",
+          "width": 900,
+          "height": 3235
+        }
+      ]
+    }
+  }
+}

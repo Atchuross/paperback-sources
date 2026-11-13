@@ -1,0 +1,55 @@
+{
+  "_fixture": "Entrées RÉELLES de GET https://api.asurascans.com/api/series/solo-farming-in-the-tower/chapters (2026-11-13, HTTP 200) autour du chapitre décimal : 101 (id 167302), 100.5 (id 167240, title null), 100 (id 167239). Deux entrées SYNTHÉTIQUES de rejet sont ajoutées à la fin (number null, number négatif) : elles ne viennent pas de l'API et servent à prouver que le mapper les écarte.",
+  "data": [
+    {
+      "id": 167302,
+      "series_id": 2201,
+      "number": 101,
+      "title": "The Black Dragon's Representative",
+      "slug": "chapter-101",
+      "page_count": 18,
+      "is_premium": false,
+      "published_at": "2025-12-28T17:48:22Z"
+    },
+    {
+      "id": 167240,
+      "series_id": 2201,
+      "number": 100.5,
+      "title": null,
+      "slug": "2896fb06-02b4-4366-9eab-1e097b6bd42f",
+      "page_count": 1,
+      "is_premium": false,
+      "published_at": "2025-12-25T22:21:13Z"
+    },
+    {
+      "id": 167239,
+      "series_id": 2201,
+      "number": 100,
+      "title": "For the Black Tower",
+      "slug": "edcf9a23-a418-4695-947a-a8fca37e4d8e",
+      "page_count": 27,
+      "is_premium": false,
+      "published_at": "2025-12-25T22:20:15Z"
+    },
+    {
+      "id": -1,
+      "series_id": 2201,
+      "number": null,
+      "title": "sonde synthétique : number null",
+      "slug": "sonde-number-null",
+      "page_count": 1,
+      "is_premium": false,
+      "published_at": "2025-12-25T22:20:15Z"
+    },
+    {
+      "id": -2,
+      "series_id": 2201,
+      "number": -1,
+      "title": "sonde synthétique : number négatif",
+      "slug": "sonde-number-negatif",
+      "page_count": 1,
+      "is_premium": false,
+      "published_at": "2025-12-25T22:20:15Z"
+    }
+  ]
+}

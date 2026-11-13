@@ -1,7 +1,7 @@
 {
   "name": "atcs-extensions",
-  "version": "0.3.0",
-  "repositoryName": "ATC's Extensions (0.3)",
+  "version": "0.4.0",
+  "repositoryName": "ATC's Extensions (0.4)",
   "private": true,
   "scripts": {
     "bundle": "paperback bundle",

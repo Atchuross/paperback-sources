@@ -13,6 +13,14 @@ SOURCES = {
     "bigsolo":     ("B", (99, 102, 241), (49, 46, 129)),    # indigo
     "fanfox":      ("F", (251, 146, 60), (194, 65, 12)),    # orange
     "weebcentral": ("W", (16, 185, 129), (6, 95, 70)),      # émeraude
+    "asurascans":  ("A", (147, 51, 234), (76, 29, 149)),    # violet
+}
+
+DIRECTORIES = {
+    "bigsolo": "Bigsolo",
+    "fanfox": "Fanfox",
+    "weebcentral": "WeebCentral",
+    "asurascans": "AsuraScans",
 }
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -65,7 +73,7 @@ def make(initial: str, top, bottom) -> Image.Image:
 
 def main() -> int:
     for name, (initial, top, bottom) in SOURCES.items():
-        out = ROOT / "src" / {"bigsolo": "Bigsolo", "fanfox": "Fanfox", "weebcentral": "WeebCentral"}[name] / "includes" / "icon.png"
+        out = ROOT / "src" / DIRECTORIES[name] / "includes" / "icon.png"
         out.parent.mkdir(parents=True, exist_ok=True)
         make(initial, top, bottom).save(out, "PNG", optimize=True)
         print(f"  {out.relative_to(ROOT)}  {out.stat().st_size} o")

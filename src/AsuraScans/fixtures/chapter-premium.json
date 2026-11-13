@@ -1,0 +1,20 @@
+{
+  "_fixture": "Réponse réelle de GET https://api.asurascans.com/api/series/solo-farming-in-the-tower/chapters/152 (2026-11-13, chapitre en accès anticipé). Signaux premium : is_premium=true, is_locked=true, pages ABSENT. access_gate est une chaîne VIDE : ce n'est pas un signal.",
+  "data": {
+    "access_gate": "",
+    "is_locked": true,
+    "unlock_time": "2026-11-13T21:51:58.335745Z",
+    "chapter": {
+      "id": 262928,
+      "series_id": 2201,
+      "number": 152,
+      "title": "Chestnut Forest",
+      "slug": "chapter-152",
+      "page_count": 0,
+      "is_premium": true,
+      "early_access_until": "2026-11-13T21:51:58.335745Z",
+      "published_at": "2026-11-13T15:51:58.335745Z",
+      "pages": null
+    }
+  }
+}

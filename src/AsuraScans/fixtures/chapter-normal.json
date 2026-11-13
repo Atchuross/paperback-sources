@@ -1,0 +1,36 @@
+{
+  "_fixture": "Réponse réelle de GET https://api.asurascans.com/api/series/solo-leveling/chapters/10 (2026-11-13), trimmée à 3 pages sur les 17 mesurées. Chapitre normal : aucun signal premium.",
+  "data": {
+    "access_gate": "",
+    "is_locked": false,
+    "unlock_time": null,
+    "chapter": {
+      "id": 142202,
+      "series_id": 1955,
+      "number": 10,
+      "title": null,
+      "slug": "chapter-10",
+      "page_count": 17,
+      "is_premium": false,
+      "early_access_until": null,
+      "published_at": "2023-03-20T22:07:59Z",
+      "pages": [
+        {
+          "url": "https://cdn.asurascans.com/asura-images/chapters-merged/solo-leveling/142202/001.webp?v=1791412460",
+          "width": 720,
+          "height": 8000
+        },
+        {
+          "url": "https://cdn.asurascans.com/asura-images/chapters-merged/solo-leveling/142202/002.webp?v=1791412460",
+          "width": 720,
+          "height": 5000
+        },
+        {
+          "url": "https://cdn.asurascans.com/asura-images/chapters-merged/solo-leveling/142202/003.webp?v=1791412460",
+          "width": 720,
+          "height": 4641
+        }
+      ]
+    }
+  }
+}
